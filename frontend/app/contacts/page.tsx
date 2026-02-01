@@ -1,7 +1,17 @@
+import Image from "next/image";
+
 export default function ContactsPage() {
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Contacts & Leads</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Contacts & Leads</h1>
+        <Image
+          src="/AppointMateLogo.png"
+          alt="AppointMate logo"
+          width={100}
+          height={100}
+        />
+      </div>
 
       <table className="w-full bg-white rounded shadow">
         <thead className="bg-gray-200">

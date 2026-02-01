@@ -1,7 +1,17 @@
+import Image from "next/image";
+
 export default function Dashboard() {
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Dashboard</h1>
+        <Image
+          src="/AppointMateLogo.png"
+          alt="AppointMate logo"
+          width={100}
+          height={100}
+        />
+      </div>
 
       <div className="grid grid-cols-4 gap-4 mb-6">
         <Card title="Active Calls" value="3" />

@@ -1,5 +1,5 @@
 'use client';
-
+import Image from "next/image";
 import { useState } from 'react';
 
 interface CalendarEvent {
@@ -53,7 +53,15 @@ export default function CalendarPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Appointments Calendar</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Appointments Calendar</h1>
+        <Image
+          src="/AppointMateLogo.png"
+          alt="AppointMate logo"
+          width={100}
+          height={100}
+        />
+      </div>
 
       <div className="bg-white p-6 rounded shadow">
         {/* Month Navigation */}
