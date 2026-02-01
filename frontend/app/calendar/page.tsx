@@ -1,6 +1,6 @@
 'use client';
 import Image from "next/image";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface CalendarEvent {
   id: string;
@@ -24,6 +24,38 @@ export default function CalendarPage() {
   const [eventDescription, setEventDescription] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Load persisted events from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('calendar_events_v1');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as any[];
+      const restored: CalendarEvent[] = parsed.map((e) => ({
+        id: e.id,
+        date: new Date(e.date),
+        title: e.title,
+        time: e.time,
+        description: e.description,
+      }));
+      setEvents(restored);
+    } catch (err) {
+      console.error('Failed to load persisted events:', err);
+    }
+  }, []);
+
+  // Persist events to localStorage whenever they change
+  useEffect(() => {
+    try {
+      const serialized = events.map((e) => ({
+        ...e,
+        date: e.date instanceof Date ? e.date.toISOString() : String(e.date),
+      }));
+      localStorage.setItem('calendar_events_v1', JSON.stringify(serialized));
+    } catch (err) {
+      console.error('Failed to persist events:', err);
+    }
+  }, [events]);
 
   const handleFetchEvents = async () => {
     if (!apiKey) {
@@ -77,6 +109,21 @@ export default function CalendarPage() {
   const handleConfirmEvents = () => {
     setEvents(fetchedEventsList);
     setShowConfirmModal(false);
+    // Persist to server if apiKey provided
+    (async () => {
+      try {
+        if (apiKey) {
+          await fetch('/api/calendar/persist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey, events: fetchedEventsList.map(e => ({ ...e, date: e.date.toISOString() })) }),
+          });
+        }
+      } catch (err) {
+        console.error('Failed to persist events to server', err);
+      }
+    })();
+
     if (fetchedEventsList.length > 0) {
       alert(`Added ${fetchedEventsList.length} event(s) to the calendar.`);
     } else {
@@ -209,6 +256,32 @@ export default function CalendarPage() {
               disabled={isLoading}
             >
               {isLoading ? 'Loading...' : 'Get Events'}
+            </button>
+            <button
+              onClick={async () => {
+                if (!apiKey) return alert('Enter your API key to load saved events');
+                try {
+                  const res = await fetch(`/api/calendar/persist?apiKey=${encodeURIComponent(apiKey)}`);
+                  if (!res.ok) throw new Error('Failed to load saved events');
+                  const saved = await res.json();
+                  if (!Array.isArray(saved)) throw new Error('Invalid saved data');
+                  const restored: CalendarEvent[] = saved.map((e: any) => ({
+                    id: e.id,
+                    date: new Date(e.date),
+                    title: e.title,
+                    time: e.time,
+                    description: e.description,
+                  }));
+                  setEvents(restored);
+                  alert(`Loaded ${restored.length} saved event(s) from server`);
+                } catch (err) {
+                  console.error('Load saved error', err);
+                  alert('Failed to load saved events');
+                }
+              }}
+              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              Load Saved
             </button>
           </div>
         </div>
