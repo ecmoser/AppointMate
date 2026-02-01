@@ -1,6 +1,6 @@
 'use client';
 import Image from "next/image";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface CalendarEvent {
   id: string;
@@ -15,11 +15,121 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [fetchedEventsList, setFetchedEventsList] = useState<CalendarEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState<number | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [eventTitle, setEventTitle] = useState('');
   const [eventTime, setEventTime] = useState('');
   const [eventDescription, setEventDescription] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Load persisted events from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('calendar_events_v1');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as any[];
+      const restored: CalendarEvent[] = parsed.map((e) => ({
+        id: e.id,
+        date: new Date(e.date),
+        title: e.title,
+        time: e.time,
+        description: e.description,
+      }));
+      setEvents(restored);
+    } catch (err) {
+      console.error('Failed to load persisted events:', err);
+    }
+  }, []);
+
+  // Persist events to localStorage whenever they change
+  useEffect(() => {
+    try {
+      const serialized = events.map((e) => ({
+        ...e,
+        date: e.date instanceof Date ? e.date.toISOString() : String(e.date),
+      }));
+      localStorage.setItem('calendar_events_v1', JSON.stringify(serialized));
+    } catch (err) {
+      console.error('Failed to persist events:', err);
+    }
+  }, [events]);
+
+  const handleFetchEvents = async () => {
+    if (!apiKey) {
+      alert('Please enter your API key.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/calendar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ apiKey }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch events');
+      }
+
+      const fetchedEvents = await response.json();
+      if (!Array.isArray(fetchedEvents)) {
+        throw new Error('API returned invalid data format');
+      }
+
+      const formattedEvents: CalendarEvent[] = fetchedEvents
+        .filter((event: any) => event.start || event.startTime)
+        .map((event: any) => {
+          const startVal = event.start || event.startTime || event.start_at;
+          const dt = new Date(startVal);
+          return {
+            id: event.id || event.uid || String(Math.random()),
+            date: isNaN(dt.getTime()) ? new Date() : dt,
+            title: event.summary || event.title || event.name || 'Untitled Event',
+            time: isNaN(dt.getTime()) ? undefined : dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            description: event.description || event.notes || '',
+          };
+        });
+
+      setFetchedEventsList(formattedEvents);
+      setShowConfirmModal(true);
+    } catch (error) {
+      console.error('Error fetching events:', error);
+      alert(`Error fetching events: ${(error as Error).message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirmEvents = () => {
+    setEvents(fetchedEventsList);
+    setShowConfirmModal(false);
+    // Persist to server if apiKey provided
+    (async () => {
+      try {
+        if (apiKey) {
+          await fetch('/api/calendar/persist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey, events: fetchedEventsList.map(e => ({ ...e, date: e.date.toISOString() })) }),
+          });
+        }
+      } catch (err) {
+        console.error('Failed to persist events to server', err);
+      }
+    })();
+
+    if (fetchedEventsList.length > 0) {
+      alert(`Added ${fetchedEventsList.length} event(s) to the calendar.`);
+    } else {
+      alert('No events to add.');
+    }
+  };
 
   const getDaysInMonth = (date: Date) => {
     return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -129,6 +239,53 @@ export default function CalendarPage() {
       </div>
 
       <div className="bg-white p-6 rounded shadow">
+        {/* API Key Input */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Enter your Cal.com API Key"
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isLoading}
+            />
+            <button
+              onClick={handleFetchEvents}
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              disabled={isLoading}
+            >
+              {isLoading ? 'Loading...' : 'Get Events'}
+            </button>
+            <button
+              onClick={async () => {
+                if (!apiKey) return alert('Enter your API key to load saved events');
+                try {
+                  const res = await fetch(`/api/calendar/persist?apiKey=${encodeURIComponent(apiKey)}`);
+                  if (!res.ok) throw new Error('Failed to load saved events');
+                  const saved = await res.json();
+                  if (!Array.isArray(saved)) throw new Error('Invalid saved data');
+                  const restored: CalendarEvent[] = saved.map((e: any) => ({
+                    id: e.id,
+                    date: new Date(e.date),
+                    title: e.title,
+                    time: e.time,
+                    description: e.description,
+                  }));
+                  setEvents(restored);
+                  alert(`Loaded ${restored.length} saved event(s) from server`);
+                } catch (err) {
+                  console.error('Load saved error', err);
+                  alert('Failed to load saved events');
+                }
+              }}
+              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              Load Saved
+            </button>
+          </div>
+        </div>
+
         {/* Month Navigation */}
         <div className="flex justify-between items-center mb-6">
           <button
@@ -286,6 +443,41 @@ export default function CalendarPage() {
                   Add Event
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Fetched Events Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded shadow-lg w-11/12 max-w-2xl">
+            <h2 className="text-2xl font-bold mb-4">Confirm Imported Events</h2>
+            <div className="max-h-64 overflow-auto mb-4">
+              {fetchedEventsList.length === 0 && (
+                <p className="text-sm text-gray-600">No events found.</p>
+              )}
+              {fetchedEventsList.map((ev) => (
+                <div key={ev.id} className="p-2 border-b last:border-b-0">
+                  <div className="font-semibold">{ev.title}</div>
+                  <div className="text-xs text-gray-600">{ev.date.toLocaleString()}</div>
+                  {ev.description && <div className="text-sm">{ev.description}</div>}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmEvents}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Add {fetchedEventsList.length} Event{fetchedEventsList.length === 1 ? '' : 's'}
+              </button>
             </div>
           </div>
         </div>
